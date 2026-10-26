@@ -1,0 +1,77 @@
+name: build-binaries
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+env:
+  # 裁剪：只保留静态 serve 所需（关 websocket / SSI / IPv6 / 内置协议栈 / 日志）
+  CFLAGS: >-
+    -Os -ffunction-sections -fdata-sections
+    -DMG_ENABLE_TCPIP=0
+    -DMG_ENABLE_HTTP_WEBSOCKET=0
+    -DMG_ENABLE_HTTP_SSI=0
+    -DMG_ENABLE_IPV6=0
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            targets: "darwin-arm64 darwin-x64"
+          - os: ubuntu-latest
+            targets: "linux-x64 linux-arm64 win64"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install zig (linux cross-compile)
+        if: runner.os == 'Linux'
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Build
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist
+          build() { # $1=输出 $2=编译器及目标 $3=额外链接参数
+            out=$1; shift
+            $@ babel-server.c mongoose.c -o dist/$out -I. $CFLAGS \
+              -Wl,--gc-sections 2>/dev/null || \
+            $@ babel-server.c mongoose.c -o dist/$out -I. $CFLAGS
+            strip dist/$out 2>/dev/null || true
+          }
+          for t in ${{ matrix.targets }}; do
+            case "$t" in
+              darwin-arm64) cc -arch arm64 -o dist/babel-server-darwin-arm64 babel-server.c mongoose.c -I. $CFLAGS ;;
+              darwin-x64)   cc -arch x86_64 -o dist/babel-server-darwin-x64  babel-server.c mongoose.c -I. $CFLAGS ;;
+              linux-x64)    zig cc -target x86_64-linux-musl -static -o dist/babel-server-linux-x64 babel-server.c mongoose.c -I. $CFLAGS -Wl,--gc-sections ;;
+              linux-arm64)  zig cc -target aarch64-linux-musl -static -o dist/babel-server-linux-arm64 babel-server.c mongoose.c -I. $CFLAGS -Wl,--gc-sections ;;
+              win64)        zig cc -target x86_64-windows-gnu -o dist/babel-server-win64.exe babel-server.c mongoose.c -I. $CFLAGS -Wl,--gc-sections -lws2_32 ;;
+            esac
+          done
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: babel-server-${{ matrix.os }}
+          path: dist/*
+
+  release:
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-mkdirs: true
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: babel-server-${{ github.sha }}
+          files: dist/*
