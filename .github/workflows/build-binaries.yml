@@ -5,6 +5,9 @@ on:
     branches: [master, main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
   # 裁剪：只保留静态 serve 所需（关 websocket / SSI / IPv6 / 内置协议栈 / 日志）
   CFLAGS: >-
