@@ -4,7 +4,7 @@
 
 static void fn(struct mg_connection *c, int ev, void *ev_data) {
     if (ev == MG_EV_HTTP_MSG) {
-        struct mg_http_serve_opts opts = {.root_dir = (const char *) c->fn_data};
+        struct mg_http_serve_opts opts = {.root_dir = (const char *) c->fn_data, .enable_dir_listing = true};
         mg_http_serve_dir(c, ev_data, &opts);   /* 目录列表随 MG_ENABLE_DIRECTORY_LISTING 生效 */
     }
 }
